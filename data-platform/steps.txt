@@ -1,0 +1,77 @@
+#-----Steps-----
+
+#-----Start docker-----
+docker-compose up -d
+-----------------------
+
+#-----Create kafka topics-----
+docker exec -it kafka kafka-topics --create --topic weather_raw --bootstrap-server kafka:9092
+docker exec -it kafka kafka-topics --create --topic weather_processed --bootstrap-server kafka:9092
+------------------------------
+
+#-----Verify topics exist-----
+docker exec -it kafka kafka-topics --list --bootstrap-server kafka:9092
+docker exec -it kafka kafka-topics --describe --topic weather_raw --bootstrap-server kafka:9092
+docker exec -it kafka kafka-topics --describe --topic weather_processed --bootstrap-server kafka:9092
+------------------------------
+
+#-----Create schema-----
+docker exec -it cassandra cqlsh
+DESCRIBE TABLES;
+
+docker exec -it cassandra cqlsh -f /schema/cassandra_schema.sql
+------------------------
+
+#-----Create superset user-----
+docker exec -it superset bash
+superset fab list-users
+
+superset fab create-admin
+superset db upgrade
+superset init
+pip install trino sqlalchemy-trino
+
+docker restart superset
+-------------------------------
+
+#-----Superset database connection-----
+trino://trino@data-platform-trino-1:8080/cassandra
+trino://trino@trino:8080/cassandra
+---------------------------------------
+
+#-----Start flink job-----
+docker exec -it flink-jobmanager bash
+flink run -py /opt/flink/flink_job.py
+--------------------------
+
+#-----New PS, run producer-----
+py producer.py
+-------------------------------
+
+#-----New PS, run consumer-----
+py -3.11 consumer.py
+-------------------------------
+
+#-----Verify data flow-----
+#--Cassandra--
+docker exec -it cassandra cqlsh
+SELECT * FROM weather.weather_data;
+#--Trino--
+docker exec -it data-platform-trino-1 /bin/bash
+trino
+SELECT * FROM cassandra.weather.weather_data;
+---------------------------
+
+#-----UI-----
+http://localhost:8081/#/overview
+http://localhost:8088/superset/welcome/
+-------------
+
+#-----Verify and end jobs-----
+docker exec -it flink-jobmanager ./bin/flink list
+docker exec -it flink-jobmanager ./bin/flink cancel <job-id>
+------------------------------
+
+#-----Stop docker-----
+docker-compose down -v
+----------------------
